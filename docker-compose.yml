@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  postgres-master:
+    image: postgres:13
+    container_name: pgxwrapper_postgres_master
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      PGDATA: /data/postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_master_data:/data/postgres
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d testdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres-sync-standby:
+    image: postgres:13
+    container_name: pgxwrapper_postgres_sync_standby
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      PGDATA: /data/postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_sync_data:/data/postgres
+      - ./configs/postgres-standby.conf:/etc/postgresql/postgresql.conf
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    restart: unless-stopped
+    depends_on:
+      - postgres-master
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d testdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres-async-standby:
+    image: postgres:13
+    container_name: pgxwrapper_postgres_async_standby
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      PGDATA: /data/postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_async_data:/data/postgres
+      - ./configs/postgres-standby.conf:/etc/postgresql/postgresql.conf
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    restart: unless-stopped
+    depends_on:
+      - postgres-master
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d testdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_master_data:
+  postgres_sync_data:
+  postgres_async_data:
