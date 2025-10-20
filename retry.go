@@ -2,6 +2,7 @@ package pgxwrapper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,22 +11,22 @@ import (
 
 // ReplicaManager менеджер реплик для обработки запросов с переключением между ними
 type ReplicaManager struct {
-	driver *Driver
+	db *DB
 }
 
 // NewReplicaManager создает новый менеджер реплик
-func NewReplicaManager(driver *Driver) *ReplicaManager {
+func NewReplicaManager(db *DB) *ReplicaManager {
 	return &ReplicaManager{
-		driver: driver,
+		db: db,
 	}
 }
 
 // ExecuteWithFallback выполняет операцию с переключением между репликами при ошибках
 func (rm *ReplicaManager) ExecuteWithFallback(ctx context.Context, operation func(Conn) error) error {
-	if !rm.driver.replicaFallback {
+	if !rm.db.replicaFallback {
 		// Если отключено переключение между репликами, используем только асинхронную реплику
-		if rm.driver.asyncSlave != nil {
-			conn := &replicaConn{conn: rm.driver.asyncSlave, driver: rm.driver, replicaType: AsyncReplica}
+		if rm.db.asyncSlave != nil {
+			conn := &replicaConn{masterConn{conn: rm.db.asyncSlave, db: rm.db}, AsyncReplica}
 			return operation(conn)
 		}
 		return ErrNoAvailableReplicas
@@ -37,15 +38,15 @@ func (rm *ReplicaManager) ExecuteWithFallback(ctx context.Context, operation fun
 		replicaType ReplicaType
 		name        string
 	}{
-		{&replicaConn{conn: rm.driver.asyncSlave, driver: rm.driver, replicaType: AsyncReplica}, AsyncReplica, "async slave"},
-		{&replicaConn{conn: rm.driver.syncSlave, driver: rm.driver, replicaType: SyncReplica}, SyncReplica, "sync slave"},
-		{&masterConn{conn: rm.driver.master, driver: rm.driver}, -1, "master"},
+		{&replicaConn{masterConn{conn: rm.db.asyncSlave, db: rm.db}, AsyncReplica}, AsyncReplica, "async slave"},
+		{&replicaConn{masterConn{conn: rm.db.syncSlave, db: rm.db}, SyncReplica}, SyncReplica, "sync slave"},
+		{&masterConn{conn: rm.db.master, db: rm.db}, -1, "master"},
 	}
 
 	var lastErr error
 	for _, connInfo := range connections {
 		if connInfo.conn == nil {
-			continue // Пропускаем недоступные подключения
+			continue // Skipping unavailable connections
 		}
 
 		err := operation(connInfo.conn)
@@ -54,8 +55,8 @@ func (rm *ReplicaManager) ExecuteWithFallback(ctx context.Context, operation fun
 		}
 
 		// Записываем ошибку в телеметрию
-		if rm.driver.telemetry != nil {
-			rm.driver.telemetry.RecordError()
+		if rm.db.telemetry != nil {
+			rm.db.telemetry.RecordError()
 		}
 
 		// Если ошибка не связана с подключением или таймаутом, не пытаемся на других репликах
@@ -64,11 +65,11 @@ func (rm *ReplicaManager) ExecuteWithFallback(ctx context.Context, operation fun
 		}
 
 		lastErr = err
-		rm.driver.logger.InfoContext(ctx, fmt.Sprintf("Ошибка при выполнении операции на %s, пробуем следующую реплику", connInfo.name), "error", err)
+		rm.db.logger.InfoContext(ctx, fmt.Sprintf("Operation failed on %s, trying the next replica", connInfo.name), "error", err)
 	}
 
 	if lastErr != nil {
-		return fmt.Errorf("операция не выполнена ни на одной реплике: %w", lastErr)
+		return fmt.Errorf("operation not performed on any replica: %w", lastErr)
 	}
 
 	return ErrNoAvailableReplicas
@@ -78,7 +79,7 @@ func (rm *ReplicaManager) ExecuteWithFallback(ctx context.Context, operation fun
 func (rm *ReplicaManager) ExecuteQueryWithRetry(ctx context.Context, operation func(Conn) error) error {
 	var lastErr error
 
-	for attempt := 0; attempt <= rm.driver.config.MaxRetries; attempt++ {
+	for attempt := 0; attempt <= rm.db.config.MaxRetries; attempt++ {
 		err := rm.ExecuteWithFallback(ctx, operation)
 		if err == nil {
 			return nil // Операция выполнена успешно
@@ -92,18 +93,18 @@ func (rm *ReplicaManager) ExecuteQueryWithRetry(ctx context.Context, operation f
 		lastErr = err
 
 		// Увеличиваем счетчик повторных попыток в телеметрии
-		if rm.driver.telemetry != nil {
-			rm.driver.telemetry.RecordRetry()
+		if rm.db.telemetry != nil {
+			rm.db.telemetry.RecordRetry()
 		}
 
 		// Если это не последняя попытка, ждем перед следующей
-		if attempt < rm.driver.config.MaxRetries {
-			time.Sleep(rm.driver.config.RetryDelay)
+		if attempt < rm.db.config.MaxRetries {
+			time.Sleep(rm.db.config.RetryDelay)
 		}
 	}
 
 	if lastErr != nil {
-		return fmt.Errorf("операция не выполнена после %d попыток: %w", rm.driver.config.MaxRetries+1, lastErr)
+		return fmt.Errorf("operation not performed after %d attempts: %w", rm.db.config.MaxRetries+1, lastErr)
 	}
 
 	return ErrMaxRetriesExceeded
@@ -115,16 +116,8 @@ func (rm *ReplicaManager) ExecuteReadQueryWithFallback(ctx context.Context, quer
 	var err error
 
 	err = rm.ExecuteWithFallback(ctx, func(conn Conn) error {
-		// Проверяем, является ли это репликой
-		if _, ok := conn.(*masterConn); !ok {
-			// Для реплик выполняем запрос на чтение
-			result, err = conn.Query(ctx, query, args...)
-			return err
-		} else {
-			// Если мы на мастере, это ошибка, так как чтение на мастере не предполагается
-			rm.driver.logger.ErrorContext(ctx, "Попытка выполнить операцию чтения на мастере", "query", query)
-			return ErrMasterOnlyOperation
-		}
+		result, err = conn.Query(ctx, query, args...)
+		return err
 	})
 
 	return result, err
@@ -135,7 +128,7 @@ func (rm *ReplicaManager) ExecuteReadQueryWithRetry(ctx context.Context, query s
 	var result Rows
 	var err error
 
-	for attempt := 0; attempt <= rm.driver.config.MaxRetries; attempt++ {
+	for attempt := 0; attempt <= rm.db.config.MaxRetries; attempt++ {
 		result, err = rm.ExecuteReadQueryWithFallback(ctx, query, args...)
 		if err == nil {
 			return result, nil // Запрос выполнен успешно
@@ -147,17 +140,17 @@ func (rm *ReplicaManager) ExecuteReadQueryWithRetry(ctx context.Context, query s
 		}
 
 		// Увеличиваем счетчик повторных попыток в телеметрии
-		if rm.driver.telemetry != nil {
-			rm.driver.telemetry.RecordRetry()
+		if rm.db.telemetry != nil {
+			rm.db.telemetry.RecordRetry()
 		}
 
 		// Если это не последняя попытка, ждем перед следующей
-		if attempt < rm.driver.config.MaxRetries {
-			time.Sleep(rm.driver.config.RetryDelay)
+		if attempt < rm.db.config.MaxRetries {
+			time.Sleep(rm.db.config.RetryDelay)
 		}
 	}
 
-	return nil, fmt.Errorf("%w: запрос на чтение не выполнен после %d попыток: %v", ErrMaxRetriesExceeded, rm.driver.config.MaxRetries+1, err)
+	return nil, fmt.Errorf("%w: read query not performed after %d attempts: %v", ErrMaxRetriesExceeded, rm.db.config.MaxRetries+1, err)
 }
 
 // isConnectionError проверяет, связана ли ошибка с подключением
@@ -166,14 +159,13 @@ func isConnectionError(err error) bool {
 		return false
 	}
 
-	if err.Error() == "context deadline exceeded" ||
-		err.Error() == "connection refused" ||
+	if err.Error() == "connection refused" ||
 		err.Error() == "connection reset by peer" {
 		return true
 	}
 
 	var pgErr *pgconn.PgError
-	if pgErr != nil {
+	if errors.As(err, &pgErr) && pgErr != nil {
 		// Определенные коды ошибок PostgreSQL могут указывать на проблемы с подключением
 		switch pgErr.Code {
 		case "08001", // SQLSTATE connection failure

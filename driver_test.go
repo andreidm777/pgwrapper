@@ -49,7 +49,7 @@ func TestErrors(t *testing.T) {
 		assert.Equal(t, "connection failed", ErrConnectionFailed.Error())
 		assert.Equal(t, "transaction failed", ErrTransactionFailed.Error())
 		assert.Equal(t, "maximum number of retries exceeded", ErrMaxRetriesExceeded.Error())
-		assert.Equal(t, "invalid driver configuration", ErrInvalidConfiguration.Error())
+		assert.Equal(t, "invalid db configuration", ErrInvalidConfiguration.Error())
 		assert.Equal(t, "replica is not ready to accept requests", ErrReplicaNotReady.Error())
 		assert.Equal(t, "query timeout exceeded", ErrQueryTimeout.Error())
 	})
@@ -77,23 +77,23 @@ func TestDriverFunctions(t *testing.T) {
 	t.Run("заглушка для тестирования функций драйвера", func(t *testing.T) {
 		// В реальном приложении здесь будут тесты с использованием моков или тестовой базы данных
 		// Пока что просто проверяем, что функции существуют и могут быть вызваны
-		driver := &Driver{}
+		db := &DB{}
 
 		// Проверяем, что методы существуют
-		assert.NotNil(t, driver.Master)
-		assert.NotNil(t, driver.SyncSlave)
-		assert.NotNil(t, driver.Slave)
-		assert.NotNil(t, driver.Close)
+		assert.NotNil(t, db.Master)
+		assert.NotNil(t, db.SyncSlave)
+		assert.NotNil(t, db.Slave)
+		assert.NotNil(t, db.Close)
 	})
 }
 
 // Тестирование менеджера реплик
 func TestReplicaManager(t *testing.T) {
 	t.Run("проверка создания менеджера реплик", func(t *testing.T) {
-		driver := &Driver{}
-		rm := NewReplicaManager(driver)
+		db := &DB{}
+		rm := NewReplicaManager(db)
 
 		assert.NotNil(t, rm)
-		assert.Equal(t, driver, rm.driver)
+		assert.Equal(t, db, rm.db)
 	})
 }
