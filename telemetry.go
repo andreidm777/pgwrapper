@@ -134,5 +134,5 @@ func (t *Telemetry) LogMetrics(ctx context.Context) {
 	}
 
 	metrics := t.GetMetrics()
-	t.logger.InfoContext(ctx, "Telemetry metrics", metrics)
+	t.logger.InfoContext(ctx, "Telemetry metrics", slog.Any("data", metrics))
 }

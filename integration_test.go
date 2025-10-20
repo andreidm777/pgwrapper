@@ -24,12 +24,12 @@ func TestDriverIntegration(t *testing.T) {
 			QueryTimeout:     5 * time.Second,
 		}
 
-		driver, err := NewDriver(context.Background(), config)
+		db, err := New(context.Background(), config)
 		require.NoError(t, err)
-		defer driver.Close(context.Background())
+		defer db.Close(context.Background())
 
 		// Проверяем, что можно получить подключение к мастеру
-		masterConn := driver.Master()
+		masterConn := db.Master()
 		require.NotNil(t, masterConn)
 
 		// Выполняем простой запрос для проверки подключения
@@ -47,12 +47,12 @@ func TestDriverIntegration(t *testing.T) {
 			QueryTimeout:     5 * time.Second,
 		}
 
-		driver, err := NewDriver(context.Background(), config)
+		db, err := New(context.Background(), config)
 		require.NoError(t, err)
-		defer driver.Close(context.Background())
+		defer db.Close(context.Background())
 
 		// Выполняем простой запрос
-		masterConn := driver.Master()
+		masterConn := db.Master()
 		result, err := masterConn.Exec(context.Background(), "SELECT 1")
 		assert.NoError(t, err)
 		assert.EqualValues(t, 0, result.RowsAffected())
@@ -68,12 +68,12 @@ func TestDriverIntegration(t *testing.T) {
 			QueryTimeout:     5 * time.Second,
 		}
 
-		driver, err := NewDriver(context.Background(), config)
+		db, err := New(context.Background(), config)
 		require.NoError(t, err)
-		defer driver.Close(context.Background())
+		defer db.Close(context.Background())
 
 		// Начинаем транзакцию
-		tx, err := driver.Begin(context.Background())
+		tx, err := db.Begin(context.Background())
 		assert.NoError(t, err)
 
 		// Откатываем транзакцию
