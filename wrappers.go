@@ -62,26 +62,26 @@ func (r *rowWrapper) Scan(dest ...any) error {
 
 // txWrapper обертка для транзакции
 type txWrapper struct {
-	tx     pgx.Tx
-	driver *Driver
+	tx pgx.Tx
+	db *DB
 }
 
 // Exec выполняет SQL команду в транзакции
 func (t *txWrapper) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
-	if t.driver.telemetry != nil && t.driver.telemetry.IsEnabled() {
+	if t.db.telemetry != nil && t.db.telemetry.IsEnabled() {
 		start := time.Now()
 		defer func() {
 			duration := time.Since(start)
-			t.driver.telemetry.RecordQuery(duration)
+			t.db.telemetry.RecordQuery(duration)
 		}()
 	}
 
 	result, err := t.tx.Exec(ctx, sql, arguments...)
 	if err != nil {
-		if t.driver.telemetry != nil {
-			t.driver.telemetry.RecordError()
+		if t.db.telemetry != nil {
+			t.db.telemetry.RecordError()
 		}
-		return result, fmt.Errorf("ошибка выполнения запроса в транзакции: %w", err)
+		return result, fmt.Errorf("error executing query in transaction: %w", err)
 	}
 
 	return result, nil
@@ -89,18 +89,18 @@ func (t *txWrapper) Exec(ctx context.Context, sql string, arguments ...any) (pgc
 
 // Query выполняет SQL запрос в транзакции
 func (t *txWrapper) Query(ctx context.Context, sql string, args ...any) (Rows, error) {
-	if t.driver.telemetry != nil && t.driver.telemetry.IsEnabled() {
+	if t.db.telemetry != nil && t.db.telemetry.IsEnabled() {
 		start := time.Now()
 		defer func() {
 			duration := time.Since(start)
-			t.driver.telemetry.RecordQuery(duration)
+			t.db.telemetry.RecordQuery(duration)
 		}()
 	}
 
 	rows, err := t.tx.Query(ctx, sql, args...)
 	if err != nil {
-		if t.driver.telemetry != nil {
-			t.driver.telemetry.RecordError()
+		if t.db.telemetry != nil {
+			t.db.telemetry.RecordError()
 		}
 		return nil, fmt.Errorf("ошибка выполнения запроса в транзакции: %w", err)
 	}
@@ -110,11 +110,11 @@ func (t *txWrapper) Query(ctx context.Context, sql string, args ...any) (Rows, e
 
 // QueryRow выполняет SQL запрос и возвращает одну строку в транзакции
 func (t *txWrapper) QueryRow(ctx context.Context, sql string, args ...any) Row {
-	if t.driver.telemetry != nil && t.driver.telemetry.IsEnabled() {
+	if t.db.telemetry != nil && t.db.telemetry.IsEnabled() {
 		start := time.Now()
 		defer func() {
 			duration := time.Since(start)
-			t.driver.telemetry.RecordQuery(duration)
+			t.db.telemetry.RecordQuery(duration)
 		}()
 	}
 
@@ -124,17 +124,17 @@ func (t *txWrapper) QueryRow(ctx context.Context, sql string, args ...any) Row {
 
 // Begin не поддерживается в транзакции
 func (t *txWrapper) Begin(ctx context.Context) (Tx, error) {
-	return nil, errors.New("вложенные транзакции не поддерживаются")
+	return nil, errors.New("nested transactions are not supported")
 }
 
 // BeginTx не поддерживается в транзакции
 func (t *txWrapper) BeginTx(ctx context.Context, txOptions TxOptions) (Tx, error) {
-	return nil, errors.New("вложенные транзакции не поддерживаются")
+	return nil, errors.New("nested transactions are not supported")
 }
 
 // Ping не поддерживается в транзакции
 func (t *txWrapper) Ping(ctx context.Context) error {
-	return errors.New("пинг не поддерживается в транзакции")
+	return errors.New("ping is not supported in transaction")
 }
 
 // Close закрывает транзакцию (на самом деле нет, т.к. это транзакция)
@@ -146,10 +146,10 @@ func (t *txWrapper) Close(ctx context.Context) error {
 func (t *txWrapper) Commit(ctx context.Context) error {
 	err := t.tx.Commit(ctx)
 	if err != nil {
-		if t.driver.telemetry != nil {
-			t.driver.telemetry.RecordError()
+		if t.db.telemetry != nil {
+			t.db.telemetry.RecordError()
 		}
-		return fmt.Errorf("ошибка фиксации транзакции: %w", err)
+		return fmt.Errorf("error committing transaction: %w", err)
 	}
 
 	return nil
@@ -159,10 +159,10 @@ func (t *txWrapper) Commit(ctx context.Context) error {
 func (t *txWrapper) Rollback(ctx context.Context) error {
 	err := t.tx.Rollback(ctx)
 	if err != nil {
-		if t.driver.telemetry != nil {
-			t.driver.telemetry.RecordError()
+		if t.db.telemetry != nil {
+			t.db.telemetry.RecordError()
 		}
-		return fmt.Errorf("ошибка отката транзакции: %w", err)
+		return fmt.Errorf("error rolling back transaction: %w", err)
 	}
 
 	return nil

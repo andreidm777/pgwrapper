@@ -47,20 +47,20 @@ func main() {
         DisableReplicaFallback: false,
     }
     
-    driver, err := pgxwrapper.NewDriver(config)
+    db, err := pgxwrapper.New(ctx.Background(), config)
     if err != nil {
         log.Fatal("Ошибка создания драйвера:", err)
     }
-    defer driver.Close(context.Background())
+    defer db.Close(context.Background())
     
     // Работа с мастером
-    master := driver.Master()
+    master := db.Master()
     
     // Работа с синхронной репликой
-    syncSlave := driver.SyncSlave()
+    syncSlave := db.SyncSlave()
     
     // Работа с асинхронной репликой
-    asyncSlave := driver.Slave()
+    asyncSlave := db.Slave()
 }
 ```
 
@@ -96,7 +96,7 @@ if err != nil {
 
 ```go
 // Транзакции всегда выполняются только на мастере
-tx, err := driver.Begin(context.Background())
+tx, err := db.Begin(context.Background())
 if err != nil {
     log.Printf("Ошибка начала транзакции: %v", err)
     return
@@ -128,7 +128,7 @@ if err != nil {
 
 ```go
 // Упрощенное выполнение функции в транзакции
-err = driver.ExecuteInTransactionDefault(context.Background(), func(tx pgxwrapper.Tx) error {
+err = db.ExecuteInTransactionDefault(context.Background(), func(tx pgxwrapper.Tx) error {
     _, err := tx.Exec(context.Background(), "UPDATE accounts SET balance = balance - 100 WHERE user_id = $1", 1)
     if err != nil {
         return err
@@ -201,7 +201,7 @@ docker-compose up -d
 Для получения метрик:
 
 ```go
-metrics := driver.Telemetry.GetMetrics()
+metrics := db.Telemetry.GetMetrics()
 log.Printf("Метрики: %+v", metrics)
 ```
 
@@ -216,11 +216,3 @@ config := pgxwrapper.Config{
     Logger: logger,
 }
 ```
-
-## Авторы
-
-- Дмитрий Евгеньевич
-
-## Лицензия
-
-MIT

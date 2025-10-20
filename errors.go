@@ -23,7 +23,7 @@ var ErrTransactionFailed = errors.New("transaction failed")
 var ErrMaxRetriesExceeded = errors.New("maximum number of retries exceeded")
 
 // ErrInvalidConfiguration ошибка, когда конфигурация драйвера невалидна
-var ErrInvalidConfiguration = errors.New("invalid driver configuration")
+var ErrInvalidConfiguration = errors.New("invalid db configuration")
 
 // ErrReplicaNotReady ошибка, когда реплика не готова к приему запросов
 var ErrReplicaNotReady = errors.New("replica is not ready to accept requests")
